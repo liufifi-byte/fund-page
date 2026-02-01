@@ -5,6 +5,8 @@ from fastapi.middleware.cors import CORSMiddleware
 import requests
 import re
 import datetime
+import os
+import uvicorn
 
 app = FastAPI()
 
@@ -105,7 +107,6 @@ def get_fund_info_fast(code):
     if code in FUND_INFO_CACHE: return FUND_INFO_CACHE[code]
     
     url = f"http://fund.eastmoney.com/pingzhongdata/{code}.js"
-    # ⚠️ 关键修改：默认 position 为 None (表示未获取到)
     result = {"name": f"基金 {code}", "position": None, "pos_type": "股票", "report_date": ""}
 
     try:
@@ -116,9 +117,6 @@ def get_fund_info_fast(code):
             name_match = re.search(r'fS_name\s*=\s*"(.*?)"', text)
             if name_match: result["name"] = name_match.group(1)
 
-            # ⚠️ 关键修改：正则兼容带引号的数字 "95.5"
-            # 原来的正则: \["(.*?)",([\d\.]+),
-            # 现在的正则: \["(.*?)",\s*"?([\d\.]+)"?,
             pos_match = re.search(r'var Data_assetAllocation\s*=\s*(\[.*?\]);', text, re.DOTALL)
             if pos_match:
                 try:
@@ -127,11 +125,7 @@ def get_fund_info_fast(code):
                     result["position"] = float(last_item[1])
                     if "联接" in result["name"] or "FOF" in result["name"]: result["pos_type"] = "基金"
                     else: result["pos_type"] = "股票"
-                    print(f"   📊 {code} 抓取成功: {result['position']}%")
-                except Exception as e: 
-                    print(f"   ⚠️ {code} 正则解析失败: {e}")
-            else:
-                print(f"   ⚠️ {code} 没找到 Data_assetAllocation")
+                except: pass
             
             FUND_INFO_CACHE[code] = result
     except: pass
@@ -143,12 +137,9 @@ def get_fund_estimate(code: str, benchmark: str = None):
     
     fund_info = get_fund_info_fast(code)
     
-    # 逻辑拆分：
-    # 1. calc_pos: 用于数学计算 (如果没抓到，默认95，保证能算出数)
-    # 2. display_pos: 用于前端展示 (如果没抓到，就是 None，前端不显示)
     real_pos = fund_info['position']
     calc_pos = real_pos if real_pos is not None else 95.0
-    display_pos = real_pos # 可能是 None
+    display_pos = real_pos 
 
     if (not benchmark) and (code in FUND_PROXIES):
         benchmark = FUND_PROXIES[code]
@@ -166,7 +157,7 @@ def get_fund_estimate(code: str, benchmark: str = None):
                     "status": "success",
                     "fund_code": code,
                     "fund_name": fund_info['name'], 
-                    "fund_position": display_pos, # 传给前端 (可能是 None)
+                    "fund_position": display_pos,
                     "pos_type": fund_info['pos_type'],
                     "position_date": fund_info['report_date'],
                     "estimate_change": f"{round(final, 2):+}%",
@@ -206,7 +197,7 @@ def get_fund_estimate(code: str, benchmark: str = None):
                 "status": "success",
                 "fund_code": code,
                 "fund_name": fund_info['name'],
-                "fund_position": display_pos, # 传给前端 (可能是 None)
+                "fund_position": display_pos,
                 "pos_type": fund_info['pos_type'],
                 "position_date": fund_info['report_date'],
                 "estimate_change": f"{round(final, 2):+}%",
@@ -220,12 +211,8 @@ def get_fund_estimate(code: str, benchmark: str = None):
     except Exception as e:
         return {"status": "failed", "error": str(e)}
 
+# ⚠️ 关键修正：确保这一段紧贴在文件最底部，且没有缩进错误
 if __name__ == "__main__":
-# 替换 main.py 最底部的启动代码
-if __name__ == "__main__":
-    import uvicorn
-    import os
-    # 获取云服务器分配的端口，如果没有则默认 8000
-    # host 必须改成 0.0.0.0 (代表允许外网访问)
+    # 这里的 indentation (缩进) 必须是 0（顶格写）
     port = int(os.environ.get("PORT", 8000))
     uvicorn.run(app, host="0.0.0.0", port=port)
