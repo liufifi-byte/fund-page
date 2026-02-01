@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>我的资产仪表盘</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background-color: #f5f5f7; padding: 20px; color: #1d1d1f; max-width: 800px; margin: 0 auto; }
+        
+        .total-panel {
+            background: linear-gradient(135deg, #007AFF, #0051a8);
+            color: white;
+            padding: 25px;
+            border-radius: 20px;
+            margin-bottom: 25px;
+            box-shadow: 0 10px 30px rgba(0,122,255,0.2);
+            text-align: center;
+        }
+        .total-amount { font-size: 42px; font-weight: 800; letter-spacing: -1px; }
+        .total-sub { font-size: 13px; opacity: 0.8; margin-top: 5px; }
+        
+        .add-card { background: white; padding: 15px; border-radius: 16px; margin-bottom: 20px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; box-shadow: 0 4px 10px rgba(0,0,0,0.03); }
+        .input-group { display: flex; flex-direction: column; flex: 1; min-width: 120px; }
+        .input-group label { font-size: 12px; color: #888; margin-bottom: 4px; font-weight: 500; margin-left: 2px; }
+        input { padding: 10px; border: 1px solid #e5e5ea; border-radius: 10px; outline: none; font-size: 16px; }
+        button.btn-add { background: #007AFF; color: white; border: none; padding: 0 24px; border-radius: 10px; font-weight: 600; cursor: pointer; height: 42px; font-size: 14px; margin-top: 18px; }
+
+        .fund-list { display: grid; gap: 15px; }
+        .fund-card { background: white; padding: 20px; border-radius: 16px; box-shadow: 0 2px 10px rgba(0,0,0,0.03); display: flex; flex-direction: column; transition: transform 0.2s; }
+        
+        .card-header { display: flex; justify-content: space-between; align-items: flex-start; }
+        .fund-name { font-size: 17px; font-weight: 700; color: #1d1d1f; margin-bottom: 4px; }
+        .fund-meta { font-size: 12px; color: #86868b; display: flex; gap: 8px; align-items: center; }
+        
+        .data-row { display: flex; justify-content: space-between; align-items: flex-end; margin-top: 15px; padding-top: 15px; border-top: 1px solid #f5f5f5; }
+        
+        .holding-info { flex: 1; }
+        .holding-label { font-size: 12px; color: #999; margin-bottom: 2px; }
+        .holding-val { font-size: 18px; font-weight: 600; color: #333; display: flex; align-items: center; gap: 5px; cursor: pointer; }
+        .edit-icon { font-size: 12px; opacity: 0.5; }
+        
+        .profit-info { text-align: right; margin-right: 20px; }
+        .profit-val { font-size: 18px; font-weight: 600; }
+        
+        .rate-info { text-align: right; }
+        .percent { font-size: 24px; font-weight: 800; display: block; line-height: 1; }
+        .time-tag { font-size: 11px; color: #bbb; margin-top: 4px; }
+
+        .up { color: #ff3b30; } .down { color: #34c759; } .flat { color: #8e8e93; }
+        .bg-up { background: #ff3b30; } .bg-down { background: #34c759; } .bg-flat { background: #ccc; }
+        
+        .holdings-bar { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+        .stock-tag { font-size: 11px; padding: 3px 8px; border-radius: 4px; background: #f9f9f9; color: #666; display: flex; align-items: center; gap: 4px; }
+        .dot { width: 6px; height: 6px; border-radius: 50%; }
+        
+        .delete-btn { font-size: 12px; color: #ddd; margin-left: 10px; cursor: pointer; }
+        .delete-btn:hover { color: red; }
+    </style>
+</head>
+<body>
+
+<div class="total-panel">
+    <div style="font-size: 14px; opacity: 0.9; margin-bottom: 5px;">📅 预计当日总盈亏</div>
+    <div class="total-amount" id="totalPL">--</div>
+    <div class="total-sub">总持仓: <span id="totalHoldings">--</span></div>
+</div>
+
+<div class="add-card">
+    <div class="input-group" style="flex:1.5">
+        <label>基金代码</label>
+        <input type="text" id="newCode" placeholder="如 161725">
+    </div>
+    <div class="input-group" style="flex:1">
+        <label>持有金额 (元)</label>
+        <input type="number" id="newAmount" placeholder="如 10000">
+    </div>
+    <button class="btn-add" onclick="handleAddClick()">添加基金</button>
+</div>
+
+<div id="fundList" class="fund-list"></div>
+
+<div style="text-align: center; margin-top: 30px;">
+    <button onclick="refreshAll()" style="background:transparent; border:none; color:#007AFF; cursor:pointer; font-weight:600;">🔄 刷新全部数据</button>
+</div>
+
+<script>
+    let myFunds = JSON.parse(localStorage.getItem('my_super_funds_v8')) || [];
+    initialRender();
+    if(myFunds.length > 0) refreshAll();
+
+    function handleAddClick() {
+        const code = document.getElementById('newCode').value.trim();
+        const amount = parseFloat(document.getElementById('newAmount').value.trim()) || 0;
+
+        if (!code) return alert('请输入基金代码');
+        if (myFunds.some(f => f.code === code)) return alert('已存在');
+
+        const newFund = { code, amount, name: '加载中...', est_change: 0 };
+        myFunds.push(newFund);
+        saveData();
+        appendCardToDom(newFund);
+        fetchOneFund(newFund);
+
+        document.getElementById('newCode').value = '';
+        document.getElementById('newAmount').value = '';
+    }
+
+    function editAmount(code) {
+        const fund = myFunds.find(f => f.code === code);
+        const newAmt = prompt(`修改 ${fund.name} 的持仓金额:`, fund.amount);
+        if (newAmt !== null) {
+            fund.amount = parseFloat(newAmt) || 0;
+            saveData();
+            updateCardUI(fund, fund.lastData); 
+            calcTotal();
+        }
+    }
+
+    function calcTotal() {
+        let totalPL = 0, totalHoldings = 0;
+        myFunds.forEach(f => {
+            totalHoldings += (f.amount || 0);
+            if (f.est_change) totalPL += f.amount * (f.est_change / 100);
+        });
+        const plEl = document.getElementById('totalPL');
+        const holdEl = document.getElementById('totalHoldings');
+        plEl.innerText = (totalPL > 0 ? "+" : "") + totalPL.toLocaleString('zh-CN', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+        holdEl.innerText = "¥" + totalHoldings.toLocaleString('zh-CN', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+    }
+
+    function initialRender() {
+        document.getElementById('fundList').innerHTML = '';
+        myFunds.forEach(f => appendCardToDom(f));
+        calcTotal();
+    }
+
+    function appendCardToDom(f) {
+        const container = document.getElementById('fundList');
+        // 删除了 .pos-tag
+        const html = `
+            <div class="fund-card" id="card-${f.code}">
+                <div class="card-header">
+                    <div>
+                        <div class="fund-name" id="name-${f.code}">${f.name}</div>
+                        <div class="fund-meta">
+                            <span>${f.code}</span>
+                            <span class="delete-btn" onclick="removeFund('${f.code}')">删除</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="data-row">
+                    <div class="holding-info">
+                        <div class="holding-label">持有金额</div>
+                        <div class="holding-val" onclick="editAmount('${f.code}')">
+                            <span id="amt-${f.code}">${f.amount.toLocaleString('zh-CN', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+                            <span class="edit-icon">✎</span>
+                        </div>
+                    </div>
+                    <div class="profit-info">
+                        <div class="holding-label">预计盈亏</div>
+                        <div class="profit-val" id="pl-${f.code}">--</div>
+                    </div>
+                    <div class="rate-info">
+                        <span class="percent" id="pct-${f.code}">--%</span>
+                        <div class="time-tag" id="time-${f.code}">--:--</div>
+                    </div>
+                </div>
+                <div class="holdings-bar" id="holdings-${f.code}"></div>
+            </div>
+        `;
+        container.insertAdjacentHTML('beforeend', html);
+    }
+
+    async function fetchOneFund(fund) {
+        document.getElementById(`pct-${fund.code}`).innerHTML = '<span style="font-size:12px;color:#999">...</span>';
+        try {
+            const res = await fetch(`http://127.0.0.1:8001/fund/${fund.code}`);
+            const data = await res.json();
+            fund.lastData = data; 
+            if (data.status === 'success') {
+                fund.name = data.fund_name;
+                fund.est_change = data.raw_value;
+                saveData();
+                updateCardUI(fund, data);
+                calcTotal(); 
+            } else {
+                document.getElementById(`pct-${fund.code}`).innerText = "失败";
+            }
+        } catch (e) {
+            document.getElementById(`pct-${fund.code}`).innerText = "错误";
+        }
+    }
+
+    function updateCardUI(fund, data) {
+        if (!data) return;
+        const colorClass = data.raw_value > 0 ? 'up' : (data.raw_value < 0 ? 'down' : 'flat');
+        document.getElementById(`pct-${fund.code}`).className = `percent ${colorClass}`;
+        document.getElementById(`pct-${fund.code}`).innerText = data.estimate_change;
+        document.getElementById(`time-${fund.code}`).innerText = data.data_time;
+        document.getElementById(`name-${fund.code}`).innerText = fund.name;
+
+        // 删除了对 pos-tag 的操作
+        
+        document.getElementById(`amt-${fund.code}`).innerText = fund.amount.toLocaleString('zh-CN', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+        const singlePL = fund.amount * (data.raw_value / 100);
+        const plEl = document.getElementById(`pl-${fund.code}`);
+        plEl.innerText = (singlePL > 0 ? "+" : "") + singlePL.toLocaleString('zh-CN', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+        plEl.className = `profit-val ${singlePL > 0 ? 'up' : (singlePL < 0 ? 'down' : 'flat')}`;
+
+        if (data.details) {
+            let tagsHtml = '';
+            data.details.slice(0, 5).forEach(stock => {
+                const dotClass = stock.change > 0 ? 'bg-up' : (stock.change < 0 ? 'bg-down' : 'bg-flat');
+                tagsHtml += `<div class="stock-tag"><span class="dot ${dotClass}"></span>${stock.name} ${stock.change}%</div>`;
+            });
+            document.getElementById(`holdings-${fund.code}`).innerHTML = tagsHtml;
+        }
+    }
+
+    function refreshAll() { myFunds.forEach(f => fetchOneFund(f)); }
+    function removeFund(code) {
+        if(confirm('删除?')) {
+            myFunds = myFunds.filter(f => f.code !== code);
+            saveData();
+            document.getElementById(`card-${code}`).remove();
+            calcTotal();
+        }
+    }
+    function saveData() { localStorage.setItem('my_super_funds_v8', JSON.stringify(myFunds)); }
+</script>
+
+</body>
+</html>
