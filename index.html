@@ -175,7 +175,7 @@
     async function fetchOneFund(fund) {
         document.getElementById(`pct-${fund.code}`).innerHTML = '<span style="font-size:12px;color:#999">...</span>';
         try {
-            const API_BASE = "你的Render后端地址";
+            const API_BASE = "https://fund-page-1.onrender.com";
             const res = await fetch(`${API_BASE}/fund/${fund.code}`);
             const data = await res.json();
             fund.lastData = data; 
