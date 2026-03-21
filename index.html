@@ -175,7 +175,8 @@
     async function fetchOneFund(fund) {
         document.getElementById(`pct-${fund.code}`).innerHTML = '<span style="font-size:12px;color:#999">...</span>';
         try {
-            const res = await fetch(`http://127.0.0.1:8001/fund/${fund.code}`);
+            const API_BASE = "你的Render后端地址";
+            const res = await fetch(`${API_BASE}/fund/${fund.code}`);
             const data = await res.json();
             fund.lastData = data; 
             if (data.status === 'success') {

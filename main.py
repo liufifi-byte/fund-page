@@ -5,8 +5,6 @@ from fastapi.middleware.cors import CORSMiddleware
 import requests
 import re
 import datetime
-import os
-import uvicorn
 
 app = FastAPI()
 
@@ -30,16 +28,23 @@ FUND_PROXIES = {
     '025857': 'sz159338',
 }
 
-FUND_INFO_CACHE = {} 
+FUND_INFO_CACHE = {}
+
 
 def format_sina_symbol(code):
     code = str(code).strip()
-    if code.startswith(('sh', 'sz', 'hk', 'gb_', 'hf_')): return code
-    if len(code) == 5: return f"hk{code}"
-    if code.startswith(('51', '56', '58', '6', '9')): return f"sh{code}"
-    if code.startswith(('15', '0', '3')): return f"sz{code}"
-    if code.startswith(('4', '8')): return f"bj{code}"
+    if code.startswith(('sh', 'sz', 'hk', 'gb_', 'hf_')):
+        return code
+    if len(code) == 5:
+        return f"hk{code}"
+    if code.startswith(('51', '56', '58', '6', '9')):
+        return f"sh{code}"
+    if code.startswith(('15', '0', '3')):
+        return f"sz{code}"
+    if code.startswith(('4', '8')):
+        return f"bj{code}"
     return f"sz{code}"
+
 
 def parse_sina_response(symbol, data_str, name_fallback, weight):
     try:
@@ -57,7 +62,8 @@ def parse_sina_response(symbol, data_str, name_fallback, weight):
                     current = float(parts[3])
                     prev = float(parts[2])
                     result['name'] = parts[0]
-                if current == 0: current = prev
+                if current == 0:
+                    current = prev
                 result['price'] = current
                 result['prev'] = prev
 
@@ -71,7 +77,8 @@ def parse_sina_response(symbol, data_str, name_fallback, weight):
             if len(parts) > 0:
                 current = float(parts[0])
                 prev = float(parts[7]) if len(parts) > 7 else current
-                if prev == 0: prev = current
+                if prev == 0:
+                    prev = current
                 result['price'] = current
                 result['prev'] = prev
                 result['name'] = symbol
@@ -79,11 +86,14 @@ def parse_sina_response(symbol, data_str, name_fallback, weight):
         if result['prev'] > 0:
             result['change'] = round(((result['price'] - result['prev']) / result['prev']) * 100, 2)
             return result
-    except: pass
+    except:
+        pass
     return None
 
+
 def fetch_sina_quotes(tasks):
-    if not tasks: return []
+    if not tasks:
+        return []
     symbols = [t[0] for t in tasks]
     url = f"http://hq.sinajs.cn/list={','.join(symbols)}"
     headers = {"Referer": "http://finance.sina.com.cn"}
@@ -93,29 +103,35 @@ def fetch_sina_quotes(tasks):
         if res.status_code == 200:
             task_map = {t[0]: (t[1], t[2]) for t in tasks}
             for line in res.text.strip().split('\n'):
-                if '="' not in line: continue
+                if '="' not in line:
+                    continue
                 match = re.search(r'hq_str_(.*?)=', line)
                 if match:
                     sym = match.group(1)
                     if sym in task_map:
                         data = parse_sina_response(sym, line, task_map[sym][0], task_map[sym][1])
-                        if data: details.append(data)
-    except: pass
+                        if data:
+                            details.append(data)
+    except:
+        pass
     return details
 
+
 def get_fund_info_fast(code):
-    if code in FUND_INFO_CACHE: return FUND_INFO_CACHE[code]
-    
+    if code in FUND_INFO_CACHE:
+        return FUND_INFO_CACHE[code]
+
     url = f"http://fund.eastmoney.com/pingzhongdata/{code}.js"
     result = {"name": f"基金 {code}", "position": None, "pos_type": "股票", "report_date": ""}
 
     try:
-        headers = { "User-Agent": "Mozilla/5.0" }
+        headers = {"User-Agent": "Mozilla/5.0"}
         res = requests.get(url, headers=headers, timeout=3)
         if res.status_code == 200:
             text = res.text
             name_match = re.search(r'fS_name\s*=\s*"(.*?)"', text)
-            if name_match: result["name"] = name_match.group(1)
+            if name_match:
+                result["name"] = name_match.group(1)
 
             pos_match = re.search(r'var Data_assetAllocation\s*=\s*(\[.*?\]);', text, re.DOTALL)
             if pos_match:
@@ -123,23 +139,28 @@ def get_fund_info_fast(code):
                     last_item = re.findall(r'\["(.*?)",\s*"?([\d\.]+)"?,', pos_match.group(1))[-1]
                     result["report_date"] = last_item[0]
                     result["position"] = float(last_item[1])
-                    if "联接" in result["name"] or "FOF" in result["name"]: result["pos_type"] = "基金"
-                    else: result["pos_type"] = "股票"
-                except: pass
-            
+                    if "联接" in result["name"] or "FOF" in result["name"]:
+                        result["pos_type"] = "基金"
+                    else:
+                        result["pos_type"] = "股票"
+                except:
+                    pass
+
             FUND_INFO_CACHE[code] = result
-    except: pass
+    except:
+        pass
     return result
+
 
 @app.get("/fund/{code}")
 def get_fund_estimate(code: str, benchmark: str = None):
     print(f"=== 查询: {code} ===")
-    
+
     fund_info = get_fund_info_fast(code)
-    
+
     real_pos = fund_info['position']
     calc_pos = real_pos if real_pos is not None else 95.0
-    display_pos = real_pos 
+    display_pos = real_pos
 
     if (not benchmark) and (code in FUND_PROXIES):
         benchmark = FUND_PROXIES[code]
@@ -149,14 +170,14 @@ def get_fund_estimate(code: str, benchmark: str = None):
         if benchmark and benchmark.strip():
             sina_symbol = format_sina_symbol(benchmark)
             quote_data = fetch_sina_quotes([(sina_symbol, f"对标:{benchmark}", 100)])
-            
+
             if quote_data:
                 quote = quote_data[0]
                 final = quote['change'] * (calc_pos / 100.0)
                 return {
                     "status": "success",
                     "fund_code": code,
-                    "fund_name": fund_info['name'], 
+                    "fund_name": fund_info['name'],
                     "fund_position": display_pos,
                     "pos_type": fund_info['pos_type'],
                     "position_date": fund_info['report_date'],
@@ -192,7 +213,7 @@ def get_fund_estimate(code: str, benchmark: str = None):
             raw = total_p / valid_w
             final = raw * (calc_pos / 100.0)
             details.sort(key=lambda x: x['weight'], reverse=True)
-            
+
             return {
                 "status": "success",
                 "fund_code": code,
@@ -203,7 +224,7 @@ def get_fund_estimate(code: str, benchmark: str = None):
                 "estimate_change": f"{round(final, 2):+}%",
                 "raw_value": round(final, 2),
                 "data_time": datetime.datetime.now().strftime("%m-%d %H:%M"),
-                "details": details 
+                "details": details
             }
         else:
             return {"status": "failed", "error": "接口无响应"}
@@ -211,8 +232,8 @@ def get_fund_estimate(code: str, benchmark: str = None):
     except Exception as e:
         return {"status": "failed", "error": str(e)}
 
-# ⚠️ 关键修正：确保这一段紧贴在文件最底部，且没有缩进错误
+
 if __name__ == "__main__":
-    # 这里的 indentation (缩进) 必须是 0（顶格写）
+    import os, uvicorn
     port = int(os.environ.get("PORT", 8000))
     uvicorn.run(app, host="0.0.0.0", port=port)
